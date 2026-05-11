@@ -101,6 +101,34 @@
             }
         );
     }
+    
+    function ejecutarFlujoGeneracion(dealId, monto, tasa, plazo) {
+    // Calculamos la tabla (usando la función de amortización que ya tienes)
+    const tablaCalculada = calcularAmortizacion(monto, tasa, plazo);
+
+    // Enviamos los datos a la plantilla de Word
+    BX24.callMethod(
+        "crm.documentgenerator.document.add",
+        {
+            templateId: Tu_ID_de_Plantilla, // El ID que anotaste en el Paso 2 anterior
+            entityTypeId: 2, 
+            entityId: dealId,
+            values: {
+                "Amortizacion": tablaCalculada, // La tabla dinámica para el Word
+                "MontoTotal": "$" + monto.toLocaleString(),
+                "TasaAplicada": tasa + "%",
+                "PlazoMeses": plazo
+            }
+        },
+        function(result) {
+            if (result.error()) {
+                alert("Error al generar documento: " + result.error());
+            } else {
+                alert("¡Documento generado y guardado en el historial!");
+            }
+        }
+    );
+}
 </script>
 
 </body>
