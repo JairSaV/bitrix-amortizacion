@@ -67,49 +67,36 @@
         return tabla;
     }
 
-    function generarDocumento() {
-        const monto = parseFloat(document.getElementById('monto').value);
-        const tasa = parseFloat(document.getElementById('tasa').value);
-        const plazo = parseInt(document.getElementById('plazo').value);
-        const statusDiv = document.getElementById('status');
+    function generarDocumentoAutomatico() {
+    // 1. Obtener el ID de la negociación actual
+    const placementOptions = BX24.placement.info().options;
+    const dealId = placementOptions ? placementOptions.ENTITY_VALUE_ID : null;
 
-        if (!monto || !tasa || !plazo) {
-            statusDiv.innerText = "Por favor, llena todos los campos.";
-            return;
-        }
+    if (!dealId) {
+        alert("No se pudo obtener el ID de la negociación.");
+        return;
+    }
 
-        statusDiv.innerText = "Calculando y generando documento...";
-        statusDiv.style.color = "#f0ad4e";
+    // 2. Consultar los campos específicos en Bitrix24
+    BX24.callMethod(
+        "crm.deal.get",
+        { id: dealId },
+        function(result) {
+            if (result.error()) {
+                console.error(result.error());
+            } else {
+                const datos = result.data();
+                
+                // Mapeo de tus IDs de campos
+                const monto = parseFloat(datos.UF_CRM_1753911936015);
+                const tasa = parseFloat(datos.UF_CRM_1753911982179);
+                const plazo = parseInt(datos.UF_CRM_1753912002856);
 
-        // Paso A: Hacer el cálculo
-        const datosAmortizacion = calcularAmortizacion(monto, tasa, plazo);
-
-        // Paso B: Obtener el ID de la Negociación actual desde donde se abrió la app
-        const placementOptions = BX24.placement.info().options;
-        const dealId = placementOptions ? placementOptions.ENTITY_VALUE_ID : 1; // 1 de respaldo para pruebas
-
-        // Paso C: Mandar a llamar al Generador de Documentos de Bitrix24
-        BX24.callMethod(
-            "crm.documentgenerator.document.add",
-            {
-                templateId: 125, // ¡IMPORTANTE! Cambiar este número por el ID de tu plantilla en Bitrix
-                entityTypeId: 2, // 2 significa Negociación (Deal)
-                entityId: dealId,
-                values: {
-                    "Amortizacion": datosAmortizacion, // Este es el array que calculamos
-                    "MontoTotal": "$" + monto.toFixed(2),
-                    "TasaAplicada": tasa + "%"
-                }
-            },
-            function(result) {
-                if(result.error()){
-                    console.error(result.error());
-                    statusDiv.innerText = "Error al generar: " + result.error();
-                    statusDiv.style.color = "#d9534f";
+                if (monto && tasa && plazo) {
+                    ejecutarFlujoGeneracion(dealId, monto, tasa, plazo);
                 } else {
-                    console.log("Documento generado", result.data());
-                    statusDiv.innerText = "¡Documento generado exitosamente en el historial!";
-                    statusDiv.style.color = "#5cb85c";
+                    alert("Faltan datos en los campos personalizados de la negociación.");
+                }
                 }
             }
         );
