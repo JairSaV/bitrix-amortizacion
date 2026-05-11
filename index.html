@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Generador de Amortización</title>
+    <!-- 1. Cargar la librería oficial de Bitrix24 -->
+    <script src="//api.bitrix24.com/api/v1/"></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; background-color: #f4f7f8; color: #333; }
+        .container { background: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); max-width: 400px; margin: auto; }
+        h2 { margin-top: 0; color: #0063c6; font-size: 18px; }
+        label { display: block; margin-top: 15px; font-weight: bold; font-size: 14px; }
+        input { width: 100%; padding: 10px; margin-top: 5px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        button { margin-top: 25px; width: 100%; padding: 12px; background-color: #0063c6; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; font-weight: bold; }
+        button:hover { background-color: #0050a0; }
+        #status { margin-top: 15px; font-size: 14px; text-align: center; color: #d9534f; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>Generador de Tabla de Amortización</h2>
+    
+    <label for="monto">Monto del Crédito ($):</label>
+    <input type="number" id="monto" placeholder="Ej. 100000" required>
+
+    <label for="tasa">Tasa de Interés Anual (%):</label>
+    <input type="number" id="tasa" placeholder="Ej. 24" required>
+
+    <label for="plazo">Plazo (Meses):</label>
+    <input type="number" id="plazo" placeholder="Ej. 12" required>
+
+    <button id="btnGenerar" onclick="generarDocumento()">Calcular y Generar PDF</button>
+    
+    <div id="status"></div>
+</div>
+
+<script>
+    // 2. Inicializar Bitrix24
+    BX24.init(function(){
+        console.log("Aplicación conectada a Bitrix24 exitosamente.");
+    });
+
+    function calcularAmortizacion(monto, tasaAnual, meses) {
+        let tasaMensual = (tasaAnual / 100) / 12;
+        // Fórmula de cuota fija (Sistema Francés)
+        let cuota = monto * (tasaMensual * Math.pow(1 + tasaMensual, meses)) / (Math.pow(1 + tasaMensual, meses) - 1);
+        
+        let tabla = [];
+        let saldo = monto;
+
+        for (let i = 1; i <= meses; i++) {
+            let interes = saldo * tasaMensual;
+            let capital = cuota - interes;
+            saldo = saldo - capital;
+
+            // Formatear a moneda para que se vea bien en el Word/PDF
+            tabla.push({
+                "Mes": i.toString(),
+                "Cuota": "$" + cuota.toFixed(2),
+                "Interes": "$" + interes.toFixed(2),
+                "Capital": "$" + capital.toFixed(2),
+                "Saldo": "$" + Math.max(0, saldo).toFixed(2)
+            });
+        }
+        return tabla;
+    }
+
+    function generarDocumento() {
+        const monto = parseFloat(document.getElementById('monto').value);
+        const tasa = parseFloat(document.getElementById('tasa').value);
+        const plazo = parseInt(document.getElementById('plazo').value);
+        const statusDiv = document.getElementById('status');
+
+        if (!monto || !tasa || !plazo) {
+            statusDiv.innerText = "Por favor, llena todos los campos.";
+            return;
+        }
+
+        statusDiv.innerText = "Calculando y generando documento...";
+        statusDiv.style.color = "#f0ad4e";
+
+        // Paso A: Hacer el cálculo
+        const datosAmortizacion = calcularAmortizacion(monto, tasa, plazo);
+
+        // Paso B: Obtener el ID de la Negociación actual desde donde se abrió la app
+        const placementOptions = BX24.placement.info().options;
+        const dealId = placementOptions ? placementOptions.ENTITY_VALUE_ID : 1; // 1 de respaldo para pruebas
+
+        // Paso C: Mandar a llamar al Generador de Documentos de Bitrix24
+        BX24.callMethod(
+            "crm.documentgenerator.document.add",
+            {
+                templateId: 125, // ¡IMPORTANTE! Cambiar este número por el ID de tu plantilla en Bitrix
+                entityTypeId: 2, // 2 significa Negociación (Deal)
+                entityId: dealId,
+                values: {
+                    "Amortizacion": datosAmortizacion, // Este es el array que calculamos
+                    "MontoTotal": "$" + monto.toFixed(2),
+                    "TasaAplicada": tasa + "%"
+                }
+            },
+            function(result) {
+                if(result.error()){
+                    console.error(result.error());
+                    statusDiv.innerText = "Error al generar: " + result.error();
+                    statusDiv.style.color = "#d9534f";
+                } else {
+                    console.log("Documento generado", result.data());
+                    statusDiv.innerText = "¡Documento generado exitosamente en el historial!";
+                    statusDiv.style.color = "#5cb85c";
+                }
+            }
+        );
+    }
+</script>
+
+</body>
+</html>
