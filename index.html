@@ -4,47 +4,85 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Generador de Amortización</title>
-    <!-- 1. Cargar la librería oficial de Bitrix24 -->
     <script src="//api.bitrix24.com/api/v1/"></script>
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; background-color: #f4f7f8; color: #333; }
-        .container { background: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); max-width: 400px; margin: auto; }
+        .container { background: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); max-width: 400px; margin: auto; text-align: center; }
         h2 { margin-top: 0; color: #0063c6; font-size: 18px; }
-        label { display: block; margin-top: 15px; font-weight: bold; font-size: 14px; }
-        input { width: 100%; padding: 10px; margin-top: 5px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
-        button { margin-top: 25px; width: 100%; padding: 12px; background-color: #0063c6; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; font-weight: bold; }
+        .data-box { background: #e9ecef; padding: 15px; border-radius: 4px; margin: 15px 0; font-size: 14px; text-align: left; }
+        button { width: 100%; padding: 12px; background-color: #0063c6; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; font-weight: bold; display: none; }
         button:hover { background-color: #0050a0; }
-        #status { margin-top: 15px; font-size: 14px; text-align: center; color: #d9534f; font-weight: bold; }
+        button:disabled { background-color: #cccccc; cursor: not-allowed; }
+        #status { margin-top: 15px; font-size: 14px; font-weight: bold; color: #d9534f; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h2>Generador de Tabla de Amortización</h2>
+    <h2>Generación a Demanda</h2>
     
-    <label for="monto">Monto del Crédito ($):</label>
-    <input type="number" id="monto" placeholder="Ej. 100000" required>
+    <div class="data-box" id="infoCliente">
+        Cargando información del cliente...
+    </div>
 
-    <label for="tasa">Tasa de Interés Anual (%):</label>
-    <input type="number" id="tasa" placeholder="Ej. 24" required>
-
-    <label for="plazo">Plazo (Meses):</label>
-    <input type="number" id="plazo" placeholder="Ej. 12" required>
-
-    <button id="btnGenerar" onclick="generarDocumento()">Calcular y Generar PDF</button>
+    <button id="btnGenerar" onclick="generarDocumento()">Generar Tabla de Amortización</button>
     
     <div id="status"></div>
 </div>
 
 <script>
-    // 2. Inicializar Bitrix24
+    // Variables globales para almacenar los datos extraídos
+    let currentDealId = null;
+    let montoCliente = 0;
+    let tasaCliente = 0;
+    let plazoCliente = 0;
+
+    // 1. Inicializar y extraer datos en cuanto se abre la pestaña
     BX24.init(function(){
-        console.log("Aplicación conectada a Bitrix24 exitosamente.");
+        const placementOptions = BX24.placement.info().options;
+        currentDealId = placementOptions ? placementOptions.ENTITY_VALUE_ID : null;
+
+        if (currentDealId) {
+            obtenerDatosNegociacion(currentDealId);
+        } else {
+            document.getElementById('infoCliente').innerText = "Esta herramienta debe abrirse dentro de una negociación.";
+        }
     });
 
+    function obtenerDatosNegociacion(dealId) {
+        BX24.callMethod(
+            "crm.deal.get",
+            { id: dealId },
+            function(result) {
+                if (result.error()) {
+                    document.getElementById('status').innerText = "Error de lectura: " + result.error();
+                } else {
+                    const datos = result.data();
+                    
+                    // Extraer los campos personalizados solicitados
+                    montoCliente = parseFloat(datos.UF_CRM_1753911936015);
+                    tasaCliente = parseFloat(datos.UF_CRM_1753911982179);
+                    plazoCliente = parseInt(datos.UF_CRM_1753912002856);
+
+                    const infoDiv = document.getElementById('infoCliente');
+                    const btn = document.getElementById('btnGenerar');
+
+                    if (montoCliente && tasaCliente && plazoCliente) {
+                        infoDiv.innerHTML = `<strong>Monto:</strong> $${montoCliente.toLocaleString()}<br>
+                                             <strong>Tasa:</strong> ${tasaCliente}%<br>
+                                             <strong>Plazo:</strong> ${plazoCliente} meses`;
+                        btn.style.display = 'block'; // Mostrar botón solo si hay datos
+                    } else {
+                        infoDiv.innerHTML = "<span style='color:#d9534f;'>Faltan datos en la negociación. Asegúrate de llenar Monto, Tasa y Plazo antes de generar.</span>";
+                    }
+                }
+            }
+        );
+    }
+
+    // 2. Lógica matemática del cálculo de la tabla
     function calcularAmortizacion(monto, tasaAnual, meses) {
         let tasaMensual = (tasaAnual / 100) / 12;
-        // Fórmula de cuota fija (Sistema Francés)
         let cuota = monto * (tasaMensual * Math.pow(1 + tasaMensual, meses)) / (Math.pow(1 + tasaMensual, meses) - 1);
         
         let tabla = [];
@@ -55,80 +93,56 @@
             let capital = cuota - interes;
             saldo = saldo - capital;
 
-            // Formatear a moneda para que se vea bien en el Word/PDF
             tabla.push({
-                "Mes": i.toString(),
-                "Cuota": "$" + cuota.toFixed(2),
-                "Interes": "$" + interes.toFixed(2),
-                "Capital": "$" + capital.toFixed(2),
-                "Saldo": "$" + Math.max(0, saldo).toFixed(2)
+                "AmortizacionMes": i.toString(),
+                "AmortizacionCuota": "$" + cuota.toFixed(2),
+                "AmortizacionInteres": "$" + interes.toFixed(2),
+                "AmortizacionCapital": "$" + capital.toFixed(2),
+                "AmortizacionSaldo": "$" + Math.max(0, saldo).toFixed(2)
             });
         }
         return tabla;
     }
 
-    function generarDocumentoAutomatico() {
-    // 1. Obtener el ID de la negociación actual
-    const placementOptions = BX24.placement.info().options;
-    const dealId = placementOptions ? placementOptions.ENTITY_VALUE_ID : null;
+    // 3. Ejecutar la generación a demanda hacia el documento Word
+    function generarDocumento() {
+        const btn = document.getElementById('btnGenerar');
+        const statusDiv = document.getElementById('status');
+        
+        btn.disabled = true;
+        btn.innerText = "Procesando...";
+        statusDiv.innerText = "";
+        statusDiv.style.color = "#f0ad4e";
 
-    if (!dealId) {
-        alert("No se pudo obtener el ID de la negociación.");
-        return;
-    }
+        const datosAmortizacion = calcularAmortizacion(montoCliente, tasaCliente, plazoCliente);
 
-    // 2. Consultar los campos específicos en Bitrix24
-    BX24.callMethod(
-        "crm.deal.get",
-        { id: dealId },
-        function(result) {
-            if (result.error()) {
-                console.error(result.error());
-            } else {
-                const datos = result.data();
-                
-                // Mapeo de tus IDs de campos
-                const monto = parseFloat(datos.UF_CRM_1753911936015);
-                const tasa = parseFloat(datos.UF_CRM_1753911982179);
-                const plazo = parseInt(datos.UF_CRM_1753912002856);
-
-                if (monto && tasa && plazo) {
-                    ejecutarFlujoGeneracion(dealId, monto, tasa, plazo);
-                } else {
-                    alert("Faltan datos en los campos personalizados de la negociación.");
+        BX24.callMethod(
+            "crm.documentgenerator.document.add",
+            {
+                templateId: 125, // REMPLAZAR POR EL ID DE TU PLANTILLA
+                entityTypeId: 2, 
+                entityId: currentDealId,
+                values: {
+                    "Amortizacion": datosAmortizacion,
+                    "MontoTotal": "$" + montoCliente.toLocaleString(),
+                    "TasaAplicada": tasaCliente + "%",
+                    "PlazoTotal": plazoCliente + " meses"
                 }
+            },
+            function(result) {
+                btn.disabled = false;
+                btn.innerText = "Generar Tabla de Amortización";
+
+                if(result.error()){
+                    statusDiv.innerText = "Error: " + result.error();
+                    statusDiv.style.color = "#d9534f";
+                } else {
+                    statusDiv.innerText = "¡Documento generado exitosamente en el historial!";
+                    statusDiv.style.color = "#5cb85c";
                 }
             }
         );
     }
-    
-    function ejecutarFlujoGeneracion(dealId, monto, tasa, plazo) {
-    // Calculamos la tabla (usando la función de amortización que ya tienes)
-    const tablaCalculada = calcularAmortizacion(monto, tasa, plazo);
-
-    // Enviamos los datos a la plantilla de Word
-    BX24.callMethod(
-        "crm.documentgenerator.document.add",
-        {
-            templateId: Tu_ID_de_Plantilla, // El ID que anotaste en el Paso 2 anterior
-            entityTypeId: 2, 
-            entityId: dealId,
-            values: {
-                "Amortizacion": tablaCalculada, // La tabla dinámica para el Word
-                "MontoTotal": "$" + monto.toLocaleString(),
-                "TasaAplicada": tasa + "%",
-                "PlazoMeses": plazo
-            }
-        },
-        function(result) {
-            if (result.error()) {
-                alert("Error al generar documento: " + result.error());
-            } else {
-                alert("¡Documento generado y guardado en el historial!");
-            }
-        }
-    );
-}
 </script>
 
 </body>
